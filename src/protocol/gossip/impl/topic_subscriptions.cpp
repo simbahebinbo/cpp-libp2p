@@ -73,8 +73,16 @@ namespace libp2p::protocol::gossip {
     for (const auto &ctx : peers) {
       assert(ctx->message_builder);
 
+      if (mesh_peers_.contains(ctx->peer_id)) {
+        continue;
+      }
+
       if (needToForward(ctx, from, origin)) {
-        ctx->message_builder->addIHave(topic_, msg_id);
+        if (is_published_locally) {
+          ctx->message_builder->addMessage(*msg, msg_id);
+        } else {
+          ctx->message_builder->addIHave(topic_, msg_id);
+        }
 
         // local messages announce themselves immediately
         connectivity_.peerIsWritable(ctx, is_published_locally);
