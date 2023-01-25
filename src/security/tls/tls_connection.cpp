@@ -6,6 +6,9 @@
 #include "tls_connection.hpp"
 #include "tls_details.hpp"
 
+#include <libp2p/connection/asio/ssl.hpp>
+#include <libp2p/transport/tcp/tcp_connection.hpp>
+
 namespace libp2p::connection {
 
   using TlsError = security::TlsError;
@@ -24,29 +27,31 @@ namespace libp2p::connection {
   }  // namespace
 
   TlsConnection::TlsConnection(
-      std::shared_ptr<RawConnection> raw_connection,
+      std::shared_ptr<transport::TcpConnection> raw_connection,
       std::shared_ptr<boost::asio::ssl::context> ssl_context,
-      const peer::IdentityManager &idmgr, tcp_socket_t &tcp_socket,
+      const peer::IdentityManager &idmgr,
       boost::optional<peer::PeerId> remote_peer)
       : local_peer_(idmgr.getId()),
         raw_connection_(std::move(raw_connection)),
-        ssl_context_(std::move(ssl_context)),
-        socket_(std::ref(tcp_socket), *ssl_context_),
-        remote_peer_(std::move(remote_peer)) {}
+        remote_peer_(std::move(remote_peer)) {
+    ssl_ = std::make_shared<AsioSocketSsl>(ssl_context,
+                                           std::move(raw_connection_->socket_));
+    raw_connection_->socket_ = AsioSocket{ssl_};
+  }
 
   void TlsConnection::asyncHandshake(
       HandshakeCallback cb,
       std::shared_ptr<crypto::marshaller::KeyMarshaller> key_marshaller) {
     bool is_client = raw_connection_->isInitiator();
 
-    socket_.async_handshake(is_client ? boost::asio::ssl::stream_base::client
-                                      : boost::asio::ssl::stream_base::server,
-                            [self = shared_from_this(), cb = std::move(cb),
-                             key_marshaller = std::move(key_marshaller)](
-                                const boost::system::error_code &error) {
-                              self->onHandshakeResult(error, cb,
-                                                      *key_marshaller);
-                            });
+    ssl_->socket.async_handshake(
+        is_client ? boost::asio::ssl::stream_base::client
+                  : boost::asio::ssl::stream_base::server,
+        [self = shared_from_this(), cb = std::move(cb),
+         key_marshaller = std::move(key_marshaller)](
+            const boost::system::error_code &error) {
+          self->onHandshakeResult(error, cb, *key_marshaller);
+        });
   }
 
   void TlsConnection::onHandshakeResult(
@@ -54,7 +59,7 @@ namespace libp2p::connection {
       const crypto::marshaller::KeyMarshaller &key_marshaller) {
     std::error_code ec = error;
     while (!ec) {
-      X509 *cert = SSL_get_peer_certificate(socket_.native_handle());
+      X509 *cert = SSL_get_peer_certificate(ssl_->socket.native_handle());
       if (cert == nullptr) {
         ec = TlsError::TLS_NO_CERTIFICATE;
         break;
@@ -69,7 +74,7 @@ namespace libp2p::connection {
       if (remote_peer_.has_value()) {
         if (remote_peer_.value() != id.peer_id) {
           SL_DEBUG(log(), "peer ids mismatch: expected={}, got={}",
-                      remote_peer_.value().toBase58(), id.peer_id.toBase58());
+                   remote_peer_.value().toBase58(), id.peer_id.toBase58());
           ec = TlsError::TLS_UNEXPECTED_PEER_ID;
           break;
         }
@@ -79,8 +84,8 @@ namespace libp2p::connection {
       remote_pubkey_ = std::move(id.public_key);
 
       SL_DEBUG(log(), "handshake success for {}bound connection to {}",
-                  (raw_connection_->isInitiator() ? "out" : "in"),
-                  remote_peer_->toBase58());
+               (raw_connection_->isInitiator() ? "out" : "in"),
+               remote_peer_->toBase58());
       return cb(shared_from_this());
     }
 
@@ -89,7 +94,7 @@ namespace libp2p::connection {
     log()->info("handshake error: {}", ec.message());
     if (auto close_res = close(); !close_res) {
       log()->info("cannot close raw connection: {}",
-                 close_res.error().message());
+                  close_res.error().message());
     }
     return cb(ec);
   }
@@ -139,16 +144,12 @@ namespace libp2p::connection {
 
   void TlsConnection::read(gsl::span<uint8_t> out, size_t bytes,
                            Reader::ReadCallbackFunc f) {
-    SL_TRACE(log(), "reading {} bytes", bytes);
-    boost::asio::async_read(socket_, makeBuffer(out, bytes),
-                            closeOnError(*this, std::move(f)));
+    raw_connection_->read(out, bytes, std::move(f));
   }
 
   void TlsConnection::readSome(gsl::span<uint8_t> out, size_t bytes,
                                Reader::ReadCallbackFunc cb) {
-    SL_TRACE(log(), "reading some up to {} bytes", bytes);
-    socket_.async_read_some(makeBuffer(out, bytes),
-                            closeOnError(*this, std::move(cb)));
+    raw_connection_->readSome(out, bytes, std::move(cb));
   }
 
   void TlsConnection::deferReadCallback(outcome::result<size_t> res,
@@ -158,16 +159,12 @@ namespace libp2p::connection {
 
   void TlsConnection::write(gsl::span<const uint8_t> in, size_t bytes,
                             Writer::WriteCallbackFunc cb) {
-    SL_TRACE(log(), "writing {} bytes", bytes);
-    boost::asio::async_write(socket_, makeBuffer(in, bytes),
-                             closeOnError(*this, std::move(cb)));
+    raw_connection_->write(in, bytes, std::move(cb));
   }
 
   void TlsConnection::writeSome(gsl::span<const uint8_t> in, size_t bytes,
                                 Writer::WriteCallbackFunc cb) {
-    SL_TRACE(log(), "writing some up to {} bytes", bytes);
-    socket_.async_write_some(makeBuffer(in, bytes),
-                             closeOnError(*this, std::move(cb)));
+    raw_connection_->writeSome(in, bytes, std::move(cb));
   }
 
   void TlsConnection::deferWriteCallback(std::error_code ec,

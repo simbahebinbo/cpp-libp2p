@@ -12,7 +12,16 @@
 #include <libp2p/transport/transport_listener.hpp>
 #include <libp2p/transport/upgrader.hpp>
 
+namespace boost::asio::ssl {
+  class context;
+}  // namespace boost::asio::ssl
+
 namespace libp2p::transport {
+  struct SslServerConfig {
+    static outcome::result<SslServerConfig> make(std::string_view pem);
+
+    std::shared_ptr<boost::asio::ssl::context> context = nullptr;
+  };
 
   /**
    * @brief TCP Server (Listener) implementation.
@@ -23,6 +32,7 @@ namespace libp2p::transport {
     ~TcpListener() override = default;
 
     TcpListener(boost::asio::io_context &context,
+                SslServerConfig ssl_server_config,
                 std::shared_ptr<Upgrader> upgrader,
                 TransportListener::HandlerFunc handler);
 
@@ -39,8 +49,10 @@ namespace libp2p::transport {
    private:
     boost::asio::io_context &context_;
     boost::asio::ip::tcp::acceptor acceptor_;
+    SslServerConfig ssl_server_config_;
     std::shared_ptr<Upgrader> upgrader_;
     TransportListener::HandlerFunc handle_;
+    boost::optional<multi::Multiaddress> address_;
 
     void doAccept();
   };

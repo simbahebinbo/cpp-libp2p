@@ -154,5 +154,13 @@ namespace libp2p::multi {
     };
   };
 
+  constexpr bool hasArg(Protocol::Code code) {
+    switch (code) {
+      case Protocol::Code::WS:
+      case Protocol::Code::WSS:
+        return false;
+    }
+    return true;
+  }
 }  // namespace libp2p::multi
 #endif  // LIBP2P_PROTOCOLLIST_HPP

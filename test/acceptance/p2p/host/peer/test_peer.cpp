@@ -150,7 +150,8 @@ Peer::sptr<host::BasicHost> Peer::makeHost(const crypto::KeyPair &keyPair) {
       multiselect, std::move(security_adaptors), std::move(muxer_adaptors));
 
   std::vector<std::shared_ptr<transport::TransportAdaptor>> transports = {
-      std::make_shared<transport::TcpTransport>(context_, std::move(upgrader))};
+      std::make_shared<transport::TcpTransport>(
+          context_, transport::SslServerConfig{}, std::move(upgrader))};
 
   auto tmgr =
       std::make_shared<network::TransportManagerImpl>(std::move(transports));

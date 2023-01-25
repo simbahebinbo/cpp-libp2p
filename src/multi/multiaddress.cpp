@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 #include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <libp2p/multi/converters/converter_utils.hpp>
 
@@ -276,7 +277,11 @@ namespace libp2p::multi {
       return false;
     }
 
-    auto str = '/' + std::string(p->name) + '/';
+    auto str = '/' + std::string(p->name);
+    if (boost::ends_with(stringified_address_, str)) {
+      return true;
+    }
+    str += '/';
     return this->stringified_address_.find(str) != std::string::npos;
   }
 

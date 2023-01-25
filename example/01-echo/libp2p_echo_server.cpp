@@ -35,17 +35,6 @@ groups:
   )");
 }  // namespace
 
-bool isInsecure(int argc, char **argv) {
-  if (2 == argc) {
-    const std::string insecure{"-insecure"};
-    auto args = gsl::multi_span<char *>(argv, argc);
-    if (insecure == args[1]) {
-      return true;
-    }
-  }
-  return false;
-}
-
 struct ServerContext {
   std::shared_ptr<libp2p::Host> host;
   std::shared_ptr<boost::asio::io_context> io_context;
@@ -54,6 +43,23 @@ struct ServerContext {
 ServerContext initSecureServer(const libp2p::crypto::KeyPair &keypair) {
   auto injector = libp2p::injector::makeHostInjector(
       libp2p::injector::useKeyPair(keypair),
+      libp2p::injector::useSslServerPem(R"(
+-----BEGIN CERTIFICATE-----
+MIIBODCB3qADAgECAghv+C53VY1w3TAKBggqhkjOPQQDAjAUMRIwEAYDVQQDDAls
+b2NhbGhvc3QwIBcNNzUwMTAxMDAwMDAwWhgPNDA5NjAxMDEwMDAwMDBaMBQxEjAQ
+BgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLNFvFLB
+kzZEhSjaSNnS5Q+364BqSLF0+2x7gZVEDazBtdxlfmIVWL9Xymgil1WuCfmIxp2R
+Cdh/0A9Ym4Zx5sqjGDAWMBQGA1UdEQQNMAuCCWxvY2FsaG9zdDAKBggqhkjOPQQD
+AgNJADBGAiEAnfqMaHg9KVCbg1OHmZ19f7ArfwNLj5fmTFB3OYeisycCIQCg2rDy
+MLbRdSECggJ2ae10PIutrY7c+78h1vHDfXRM7A==
+-----END CERTIFICATE-----
+
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdfUHplIKKrgBaZUd
+FVg0biAiKZmXu+iWX43vprg2c/ShRANCAASzRbxSwZM2RIUo2kjZ0uUPt+uAakix
+dPtse4GVRA2swbXcZX5iFVi/V8poIpdVrgn5iMadkQnYf9APWJuGcebK
+-----END PRIVATE KEY-----
+)"),
       libp2p::injector::useSecurityAdaptors<libp2p::security::Noise>());
   auto host = injector.create<std::shared_ptr<libp2p::Host>>();
   auto context = injector.create<std::shared_ptr<boost::asio::io_context>>();
@@ -75,6 +81,28 @@ int main(int argc, char **argv) {
   using libp2p::crypto::PrivateKey;
   using libp2p::crypto::PublicKey;
   using libp2p::common::operator""_unhex;
+
+  auto has_arg = [&](std::string_view arg) {
+    for (int i = 1; i < argc; ++i) {
+      if (argv[i] == arg) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (has_arg("-h") or has_arg("--help")) {
+    fmt::print("Options:\n");
+    fmt::print("  -h, --help\n");
+    fmt::print("    Print help\n");
+    fmt::print("  -insecure\n");
+    fmt::print("    Use plaintext protocol instead of noise\n");
+    fmt::print("  --ws\n");
+    fmt::print("    Accept websocket connections instead of tcp\n");
+    fmt::print("  --wss\n");
+    fmt::print("    Accept secure websocket connections instead of tcp\n");
+    return 0;
+  }
 
   // prepare log system
   auto logging_system = std::make_shared<soralog::LoggingSystem>(
@@ -107,7 +135,7 @@ int main(int argc, char **argv) {
                               "4a9361c525840f7086b893d584ebbe475b4ec"
                               "7069951d2e897e8bceb0a3f35ce"_unhex}}};
 
-  bool insecure_mode{isInsecure(argc, argv)};
+  bool insecure_mode{has_arg("-insecure")};
   if (insecure_mode) {
     std::cout << "Starting in insecure mode" << std::endl;
   } else {
@@ -130,10 +158,16 @@ int main(int argc, char **argv) {
                                     echo.handle(std::move(stream));
                                   });
 
+  std::string _ma = "/ip4/127.0.0.1/tcp/40010";
+  if (has_arg("--wss")) {
+    _ma += "/wss";
+  } else if (has_arg("--ws")) {
+    _ma += "/ws";
+  }
+
   // launch a Listener part of the Host
-  server.io_context->post([host{std::move(server.host)}] {
-    auto ma =
-        libp2p::multi::Multiaddress::create("/ip4/127.0.0.1/tcp/40010").value();
+  server.io_context->post([=, host{std::move(server.host)}] {
+    auto ma = libp2p::multi::Multiaddress::create(_ma).value();
     auto listen_res = host->listen(ma);
     if (!listen_res) {
       std::cerr << "host cannot listen the given multiaddress: "
@@ -145,7 +179,7 @@ int main(int argc, char **argv) {
     std::cout << "Server started\nListening on: " << ma.getStringAddress()
               << "\nPeer id: " << host->getPeerInfo().id.toBase58()
               << std::endl;
-    std::cout << "Connection string: " << ma.getStringAddress() << "/ipfs/"
+    std::cout << "Connection string: " << ma.getStringAddress() << "/p2p/"
               << host->getPeerInfo().id.toBase58() << std::endl;
   });
 

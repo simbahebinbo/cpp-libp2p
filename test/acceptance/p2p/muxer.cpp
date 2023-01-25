@@ -370,7 +370,8 @@ TEST_P(MuxerAcceptanceTest, ParallelEcho) {
   auto plaintext = std::make_shared<Plaintext>(msg_marshaller, idmgr,
                                                std::move(key_marshaller));
   auto upgrader = std::make_shared<UpgraderSemiMock>(plaintext, muxer);
-  auto transport = std::make_shared<TcpTransport>(server_context, upgrader);
+  auto transport = std::make_shared<TcpTransport>(server_context,
+                                                  SslServerConfig{}, upgrader);
   auto server = std::make_shared<Server>(transport);
   server->listen(serverAddr);
 
@@ -404,7 +405,8 @@ TEST_P(MuxerAcceptanceTest, ParallelEcho) {
         auto plaintext =
             std::make_shared<Plaintext>(msg_marshaller, idmgr, key_marshaller);
         auto upgrader = std::make_shared<UpgraderSemiMock>(plaintext, muxer);
-        auto transport = std::make_shared<TcpTransport>(context, upgrader);
+        auto transport = std::make_shared<TcpTransport>(
+            context, SslServerConfig{}, upgrader);
         auto client = std::make_shared<Client>(transport, localSeed, context,
                                                streams, rounds);
 

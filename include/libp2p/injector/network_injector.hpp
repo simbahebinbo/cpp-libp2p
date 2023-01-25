@@ -9,6 +9,8 @@
 #include <boost/di.hpp>
 
 // implementations
+#include <libp2p/basic/scheduler/asio_scheduler_backend.hpp>
+#include <libp2p/basic/scheduler/scheduler_impl.hpp>
 #include <libp2p/crypto/aes_ctr/aes_ctr_impl.hpp>
 #include <libp2p/crypto/crypto_provider/crypto_provider_impl.hpp>
 #include <libp2p/crypto/ecdsa_provider/ecdsa_provider_impl.hpp>
@@ -21,8 +23,6 @@
 #include <libp2p/crypto/secp256k1_provider/secp256k1_provider_impl.hpp>
 #include <libp2p/muxer/mplex.hpp>
 #include <libp2p/muxer/yamux.hpp>
-#include <libp2p/basic/scheduler/asio_scheduler_backend.hpp>
-#include <libp2p/basic/scheduler/scheduler_impl.hpp>
 #include <libp2p/network/impl/connection_manager_impl.hpp>
 #include <libp2p/network/impl/dialer_impl.hpp>
 #include <libp2p/network/impl/dnsaddr_resolver_impl.hpp>
@@ -151,6 +151,19 @@ namespace libp2p::injector {
   }
 
   /**
+   * @brief Instruct injector to use ssl server with key and certificates from
+   * pem. Can be used once.
+   */
+  inline auto useSslServerPem(std::string_view pem) {
+    transport::SslServerConfig config;
+    if (not pem.empty()) {
+      config = transport::SslServerConfig::make(pem).value();
+    }
+    return boost::di::bind<transport::SslServerConfig>.template to(
+        std::move(config))[boost::di::override];
+  }
+
+  /**
    * @brief Instruct injector to use specific config type. Can be used many
    * times for different types.
    * @tparam C config type
@@ -235,7 +248,7 @@ namespace libp2p::injector {
    * @return complete network injector
    */
   template <typename InjectorConfig = BOOST_DI_CFG, typename... Ts>
-  inline auto makeNetworkInjector(Ts &&... args) {
+  inline auto makeNetworkInjector(Ts &&...args) {
     using namespace boost;  // NOLINT
 
     auto csprng = std::make_shared<crypto::random::BoostRandomGenerator>();
@@ -295,6 +308,7 @@ namespace libp2p::injector {
         di::bind<security::SecurityAdaptor *[]>().template to<security::Plaintext, security::Secio, security::Noise, security::TlsAdaptor>(),  // NOLINT
         di::bind<muxer::MuxerAdaptor *[]>().template to<muxer::Yamux, muxer::Mplex>(),  // NOLINT
         di::bind<transport::TransportAdaptor *[]>().template to<transport::TcpTransport>(),  // NOLINT
+        di::bind<transport::SslServerConfig>.template to(transport::SslServerConfig{}),
 
         // user-defined overrides...
         std::forward<decltype(args)>(args)...

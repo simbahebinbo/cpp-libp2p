@@ -5,16 +5,71 @@
 
 #include <libp2p/transport/tcp/tcp_listener.hpp>
 
+#include <libp2p/connection/asio/ssl.hpp>
+#include <libp2p/connection/asio/tcp.hpp>
+#include <libp2p/connection/asio/ws.hpp>
 #include <libp2p/log/logger.hpp>
 #include <libp2p/transport/impl/upgrader_session.hpp>
 
 namespace libp2p::transport {
+  template <typename F>
+  void acceptWs(AsioSocket socket, const multi::Multiaddress &address,
+                const std::shared_ptr<boost::asio::ssl::context> &context,
+                F f) {
+    using P = multi::Protocol::Code;
+    auto ws = [=](AsioSocket socket, F f) {
+      auto ws = std::make_shared<AsioSocketWs>(std::move(socket));
+      ws->socket.async_accept(
+          [=, f{std::move(f)}](boost::system::error_code ec) mutable {
+            if (ec) {
+              return f(ec);
+            }
+            f(AsioSocket{std::move(ws)});
+          });
+    };
+    if (address.hasProtocol(P::WS)) {
+      return ws(std::move(socket), std::move(f));
+    }
+    if (not address.hasProtocol(P::WSS)) {
+      auto executor = socket.executor;
+      return boost::asio::post(
+          executor, [socket{std::move(socket)}, f{std::move(f)}]() mutable {
+            f(std::move(socket));
+          });
+    }
+    auto ssl = std::make_shared<AsioSocketSsl>(context, std::move(socket));
+    ssl->socket.async_handshake(
+        boost::asio::ssl::stream_base::handshake_type::server,
+        [=, f{std::move(f)}](boost::system::error_code ec) mutable {
+          if (ec) {
+            return f(ec);
+          }
+          ws(AsioSocket{std::move(ssl)}, std::move(f));
+        });
+  }
+  outcome::result<SslServerConfig> SslServerConfig::make(std::string_view pem) {
+    auto context = std::make_shared<boost::asio::ssl::context>(
+        boost::asio::ssl::context::tls);
+    boost::system::error_code ec;
+    context->use_private_key(boost::asio::buffer(pem),
+                             boost::asio::ssl::context::file_format::pem, ec);
+    if (ec) {
+      return ec;
+    }
+    context->use_certificate_chain(boost::asio::buffer(pem), ec);
+    if (ec) {
+      return ec;
+    }
+    return SslServerConfig{context};
+  }
 
   TcpListener::TcpListener(boost::asio::io_context &context,
+                           SslServerConfig ssl_server_config,
                            std::shared_ptr<Upgrader> upgrader,
                            TransportListener::HandlerFunc handler)
       : context_(context),
         acceptor_(context_),
+        ssl_server_config_{std::move(ssl_server_config)},
         upgrader_(std::move(upgrader)),
         handle_(std::move(handler)) {}
 
@@ -27,6 +82,8 @@ namespace libp2p::transport {
     if (acceptor_.is_open()) {
       return std::errc::already_connected;
     }
+
+    address_ = address;
 
     // TODO(@warchant): replace with parser PRE-129
     using namespace boost::asio;  // NOLINT
@@ -52,6 +109,10 @@ namespace libp2p::transport {
   }
 
   bool TcpListener::canListen(const multi::Multiaddress &ma) const {
+    using P = multi::Protocol::Code;
+    if (ma.hasProtocol(P::WSS) and not ssl_server_config_.context) {
+      return false;
+    }
     return detail::supportsIpTcp(ma);
   }
 
@@ -61,7 +122,7 @@ namespace libp2p::transport {
     if (ec) {
       return ec;
     }
-    return detail::makeAddress(endpoint);
+    return detail::makeAddress(endpoint, *address_);
   }
 
   bool TcpListener::isClosed() const {
@@ -85,23 +146,36 @@ namespace libp2p::transport {
       return;
     }
 
-    acceptor_.async_accept(
-        [self{this->shared_from_this()}](const boost::system::error_code &ec,
-                                         ip::tcp::socket sock) {
-          if (ec) {
-            return self->handle_(ec);
-          }
+    acceptor_.async_accept([self{this->shared_from_this()}](
+                               boost::system::error_code ec,
+                               ip::tcp::socket sock) {
+      if (ec) {
+        return self->handle_(ec);
+      }
+      auto endpoint = sock.remote_endpoint(ec);
+      if (not ec) {
+        if (auto _remote = detail::makeAddress(endpoint, *self->address_)) {
+          acceptWs(AsioSocket{std::make_shared<AsioSocketTcp>(std::move(sock))},
+                   *self->address_, self->ssl_server_config_.context,
+                   [=, remote{std::move(_remote.value())}](
+                       outcome::result<AsioSocket> _socket) mutable {
+                     if (not _socket) {
+                       return;
+                     }
+                     auto conn = std::make_shared<TcpConnection>(
+                         std::move(_socket.value()), false, *self->address_,
+                         remote);
 
-          auto conn =
-              std::make_shared<TcpConnection>(self->context_, std::move(sock));
+                     auto session = std::make_shared<UpgraderSession>(
+                         self->upgrader_, std::move(conn), self->handle_);
 
-          auto session = std::make_shared<UpgraderSession>(
-              self->upgrader_, std::move(conn), self->handle_);
+                     session->secureInbound();
+                   });
+        }
+      }
 
-          session->secureInbound();
-
-          self->doAccept();
-        });
+      self->doAccept();
+    });
   };
 
 }  // namespace libp2p::transport

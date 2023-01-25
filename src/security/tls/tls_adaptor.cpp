@@ -101,16 +101,13 @@ namespace libp2p::security {
       }
     }
 
-    transport::TcpConnection *tcp_conn = nullptr;
-
     if (!ec) {
-      tcp_conn = dynamic_cast<transport::TcpConnection *>(conn.get());
+      auto tcp_conn = std::dynamic_pointer_cast<transport::TcpConnection>(conn);
       if (tcp_conn == nullptr) {
         ec = TlsError::TLS_INCOMPATIBLE_TRANSPORT;
       } else {
         auto tls_conn = std::make_shared<TlsConnection>(
-            std::move(conn), ssl_context_, *idmgr_, tcp_conn->socket_,
-            std::move(remote_peer));
+            std::move(tcp_conn), ssl_context_, *idmgr_, std::move(remote_peer));
         tls_conn->asyncHandshake(std::move(cb), key_marshaller_);
       }
     }

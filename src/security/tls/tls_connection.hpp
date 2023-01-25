@@ -18,6 +18,14 @@
 #include <libp2p/peer/identity_manager.hpp>
 #include <libp2p/security/tls/tls_errors.hpp>
 
+namespace libp2p {
+  struct AsioSocketSsl;
+}  // namespace libp2p
+
+namespace libp2p::transport {
+  class TcpConnection;
+}  // namespace libp2p::transport
+
 namespace libp2p::connection {
 
   /// Secure connection of TLS 1.3 protocol
@@ -25,13 +33,6 @@ namespace libp2p::connection {
                         public std::enable_shared_from_this<TlsConnection>,
                         private boost::noncopyable {
    public:
-    /// lower level socket type is TCP
-    using tcp_socket_t = boost::asio::ip::tcp::socket;
-
-    /// reference as a parameter here allows to upgrade established TCP
-    /// connection
-    using ssl_socket_t = boost::asio::ssl::stream<tcp_socket_t &>;
-
     /// Upgraded connection passed to this callback
     using HandshakeCallback = std::function<void(
         outcome::result<std::shared_ptr<connection::SecureConnection>>)>;
@@ -43,9 +44,9 @@ namespace libp2p::connection {
     /// \param tcp_socket Raw socket extracted from raw connection
     /// \param remote_peer Expected peer id of remote peer, has value for
     /// outbound connections
-    TlsConnection(std::shared_ptr<RawConnection> raw_connection,
+    TlsConnection(std::shared_ptr<transport::TcpConnection> raw_connection,
                   std::shared_ptr<boost::asio::ssl::context> ssl_context,
-                  const peer::IdentityManager &idmgr, tcp_socket_t &tcp_socket,
+                  const peer::IdentityManager &idmgr,
                   boost::optional<peer::PeerId> remote_peer);
 
     /// Performs async handshake and passes its result into callback. This fn is
@@ -56,10 +57,6 @@ namespace libp2p::connection {
     void asyncHandshake(
         HandshakeCallback cb,
         std::shared_ptr<crypto::marshaller::KeyMarshaller> key_marshaller);
-
-    /// Dtor.
-    /// TODO(artem): research whether the connection is closed automatically
-    ~TlsConnection() override = default;
 
     /// Returns local peer id
     outcome::result<peer::PeerId> localPeer() const override;
@@ -119,13 +116,9 @@ namespace libp2p::connection {
     const peer::PeerId local_peer_;
 
     /// Raw TCP connection
-    std::shared_ptr<RawConnection> raw_connection_;
+    std::shared_ptr<transport::TcpConnection> raw_connection_;
 
-    /// SSL context, shared among connections
-    std::shared_ptr<boost::asio::ssl::context> ssl_context_;
-
-    /// SSL stream
-    ssl_socket_t socket_;
+    std::shared_ptr<AsioSocketSsl> ssl_;
 
     /// Remote peer id
     boost::optional<peer::PeerId> remote_peer_;
