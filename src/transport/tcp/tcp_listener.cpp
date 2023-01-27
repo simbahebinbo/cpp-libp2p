@@ -47,6 +47,7 @@ namespace libp2p::transport {
           ws(AsioSocket{std::move(ssl)}, std::move(f));
         });
   }
+
   outcome::result<SslServerConfig> SslServerConfig::make(std::string_view pem) {
     auto context = std::make_shared<boost::asio::ssl::context>(
         boost::asio::ssl::context::tls);
