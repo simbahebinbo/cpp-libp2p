@@ -153,5 +153,6 @@ namespace libp2p::multi {
         {Protocol::Code::X_PARITY_WSS, Protocol::kVarLen, "x-parity-wss"},
     };
   };
+
 }  // namespace libp2p::multi
 #endif  // LIBP2P_PROTOCOLLIST_HPP
