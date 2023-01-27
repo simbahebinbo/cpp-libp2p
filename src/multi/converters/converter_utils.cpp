@@ -59,7 +59,7 @@ namespace libp2p::multi::converters {
         protx = ProtocolList::get(word);
         if (protx != nullptr) {
           processed += UVarint(static_cast<uint64_t>(protx->code)).toHex();
-          if (not hasArg(protx->code)) {
+          if (protx->size == 0) {
             continue;
           }
           type = WordType::ADDRESS;  // Since the next word will be an address

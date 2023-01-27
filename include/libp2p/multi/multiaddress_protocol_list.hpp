@@ -153,14 +153,5 @@ namespace libp2p::multi {
         {Protocol::Code::X_PARITY_WSS, Protocol::kVarLen, "x-parity-wss"},
     };
   };
-
-  constexpr bool hasArg(Protocol::Code code) {
-    switch (code) {
-      case Protocol::Code::WS:
-      case Protocol::Code::WSS:
-        return false;
-    }
-    return true;
-  }
 }  // namespace libp2p::multi
 #endif  // LIBP2P_PROTOCOLLIST_HPP
