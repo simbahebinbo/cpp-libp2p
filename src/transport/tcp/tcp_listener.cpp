@@ -84,11 +84,12 @@ namespace libp2p::transport {
     }
 
     address_ = address;
+    tcp_address_ = *TcpMultiaddress::from(address);
 
     // TODO(@warchant): replace with parser PRE-129
     using namespace boost::asio;  // NOLINT
     try {
-      OUTCOME_TRY(endpoint, detail::makeEndpoint(address));
+      OUTCOME_TRY(endpoint, tcp_address_->endpoint());
 
       // setup acceptor, throws
       acceptor_.open(endpoint.protocol());
@@ -109,11 +110,11 @@ namespace libp2p::transport {
   }
 
   bool TcpListener::canListen(const multi::Multiaddress &ma) const {
-    using P = multi::Protocol::Code;
-    if (ma.hasProtocol(P::WSS) and not ssl_server_config_.context) {
+    auto tcp = TcpMultiaddress::from(ma);
+    if (tcp and tcp->wss and not ssl_server_config_.context) {
       return false;
     }
-    return detail::supportsIpTcp(ma);
+    return tcp.has_value();
   }
 
   outcome::result<multi::Multiaddress> TcpListener::getListenMultiaddr() const {
@@ -122,7 +123,7 @@ namespace libp2p::transport {
     if (ec) {
       return ec;
     }
-    return detail::makeAddress(endpoint, *address_);
+    return tcp_address_->multiaddress(endpoint);
   }
 
   bool TcpListener::isClosed() const {
@@ -154,24 +155,22 @@ namespace libp2p::transport {
       }
       auto endpoint = sock.remote_endpoint(ec);
       if (not ec) {
-        if (auto _remote = detail::makeAddress(endpoint, *self->address_)) {
-          acceptWs(AsioSocket{std::make_shared<AsioSocketTcp>(std::move(sock))},
-                   *self->address_, self->ssl_server_config_.context,
-                   [=, remote{std::move(_remote.value())}](
-                       outcome::result<AsioSocket> _socket) mutable {
-                     if (not _socket) {
-                       return;
-                     }
-                     auto conn = std::make_shared<TcpConnection>(
-                         std::move(_socket.value()), false, *self->address_,
-                         remote);
+        auto remote = self->tcp_address_->multiaddress(endpoint);
+        acceptWs(AsioSocket{std::make_shared<AsioSocketTcp>(std::move(sock))},
+                 *self->address_, self->ssl_server_config_.context,
+                 [=](outcome::result<AsioSocket> _socket) mutable {
+                   if (not _socket) {
+                     return;
+                   }
+                   auto conn = std::make_shared<TcpConnection>(
+                       std::move(_socket.value()), false, *self->address_,
+                       remote);
 
-                     auto session = std::make_shared<UpgraderSession>(
-                         self->upgrader_, std::move(conn), self->handle_);
+                   auto session = std::make_shared<UpgraderSession>(
+                       self->upgrader_, std::move(conn), self->handle_);
 
-                     session->secureInbound();
-                   });
-        }
+                   session->secureInbound();
+                 });
       }
 
       self->doAccept();

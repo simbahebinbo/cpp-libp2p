@@ -12,8 +12,7 @@
 
 namespace libp2p::transport {
   template <typename Executor, typename F>
-  void connectTcp(Executor executor, const multi::Multiaddress &address, F f) {
-    auto [host, port] = detail::getHostAndTcpPort(address);
+  void connectTcp(Executor executor, const TcpMultiaddress &address, F f) {
     using boost::asio::ip::tcp;
     auto resolver = std::make_shared<tcp::resolver>(executor);
     auto next = [=, f{std::move(f)}](
@@ -35,27 +34,28 @@ namespace libp2p::transport {
           });
     };
     using P = multi::Protocol::Code;
-    switch (detail::getFirstProtocol(address)) {
+    auto port = std::to_string(address.port);
+    switch (address.host_type) {
       case P::DNS4:
-        return resolver->async_resolve(tcp::v4(), host, port, std::move(next));
+        return resolver->async_resolve(tcp::v4(), address.host, port,
+                                       std::move(next));
       case P::DNS6:
-        return resolver->async_resolve(tcp::v6(), host, port, std::move(next));
-      default:  // Could be only DNS, IP6 or IP4 as tcpResolve already
-                // checked for that in the beginning of the method
-        return resolver->async_resolve(host, port, std::move(next));
+        return resolver->async_resolve(tcp::v6(), address.host, port,
+                                       std::move(next));
+      default:  // Could be only DNS, IP6 or IP4 as TcpMultiaddress::from
+                // already checked for that
+        return resolver->async_resolve(address.host, port, std::move(next));
     }
   }
 
   template <typename F>
-  void connectWs(AsioSocket socket, const multi::Multiaddress &address,
+  void connectWs(AsioSocket socket, const TcpMultiaddress &address,
                  const std::shared_ptr<boost::asio::ssl::context> &context,
                  F f) {
-    auto [host, port] = detail::getHostAndTcpPort(address);
-    using P = multi::Protocol::Code;
-    auto ws = [=, host{host}](AsioSocket socket, F f) {
+    auto ws = [=](AsioSocket socket, F f) {
       auto ws = std::make_shared<AsioSocketWs>(std::move(socket));
       ws->socket.async_handshake(
-          host, "/",
+          address.host, "/",
           [=, f{std::move(f)}](boost::system::error_code ec) mutable {
             if (ec) {
               return f(ec);
@@ -63,10 +63,10 @@ namespace libp2p::transport {
             f(AsioSocket{std::move(ws)});
           });
     };
-    if (address.hasProtocol(P::WS)) {
+    if (address.ws) {
       return ws(std::move(socket), std::move(f));
     }
-    if (not address.hasProtocol(P::WSS)) {
+    if (not address.wss) {
       auto executor = socket.executor;
       return boost::asio::post(
           executor, [socket{std::move(socket)}, f{std::move(f)}]() mutable {
@@ -95,15 +95,17 @@ namespace libp2p::transport {
                           multi::Multiaddress address,
                           TransportAdaptor::HandlerFunc handler,
                           std::chrono::milliseconds timeout) {
-    if (!canDial(address)) {
+    auto _tcp_address = TcpMultiaddress::from(address);
+    if (not _tcp_address) {
       context_->post([handler{std::move(handler)}] {
         handler(std::errc::address_family_not_supported);
       });
       return;
     }
+    auto &tcp_address = _tcp_address.value();
 
     connectTcp(
-        context_->get_executor(), address,
+        context_->get_executor(), tcp_address,
         [=, self{shared_from_this()}, cb{std::move(handler)}](
             outcome::result<std::shared_ptr<AsioSocketTcp>> _tcp) mutable {
           if (not _tcp) {
@@ -115,14 +117,10 @@ namespace libp2p::transport {
           if (ec) {
             return cb(ec);
           }
-          auto _local = detail::makeAddress(endpoint, address);
-          if (not _local) {
-            return cb(_local.error());
-          }
-          connectWs(AsioSocket{std::move(_tcp.value())}, address,
+          auto local = tcp_address.multiaddress(endpoint);
+          connectWs(AsioSocket{std::move(_tcp.value())}, tcp_address,
                     client_ssl_context_,
-                    [=, local{std::move(_local.value())}](
-                        outcome::result<AsioSocket> _socket) mutable {
+                    [=](outcome::result<AsioSocket> _socket) mutable {
                       if (not _socket) {
                         return cb(_socket.error());
                       }
@@ -142,7 +140,7 @@ namespace libp2p::transport {
   }
 
   bool TcpTransport::canDial(const multi::Multiaddress &ma) const {
-    return detail::supportsIpTcp(ma);
+    return TcpMultiaddress::from(ma).has_value();
   }
 
   TcpTransport::TcpTransport(std::shared_ptr<boost::asio::io_context> context,

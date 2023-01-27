@@ -7,8 +7,8 @@
 #define LIBP2P_TCP_LISTENER_HPP
 
 #include <boost/asio.hpp>
+#include <libp2p/transport/tcp/address.hpp>
 #include <libp2p/transport/tcp/tcp_connection.hpp>
-#include <libp2p/transport/tcp/tcp_util.hpp>
 #include <libp2p/transport/transport_listener.hpp>
 #include <libp2p/transport/upgrader.hpp>
 
@@ -53,6 +53,7 @@ namespace libp2p::transport {
     std::shared_ptr<Upgrader> upgrader_;
     TransportListener::HandlerFunc handle_;
     boost::optional<multi::Multiaddress> address_;
+    boost::optional<TcpMultiaddress> tcp_address_;
 
     void doAccept();
   };

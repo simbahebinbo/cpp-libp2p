@@ -8,7 +8,6 @@
 
 #include <boost/asio.hpp>
 #include <libp2p/transport/tcp/tcp_listener.hpp>
-#include <libp2p/transport/tcp/tcp_util.hpp>
 #include <libp2p/transport/transport_adaptor.hpp>
 #include <libp2p/transport/upgrader.hpp>
 

@@ -14,18 +14,6 @@ namespace libp2p::connection {
   using TlsError = security::TlsError;
   using security::tls_details::log;
 
-  namespace {
-    template <typename Span>
-    inline auto makeBuffer(Span s, size_t size) {
-      return boost::asio::buffer(s.data(), size);
-    }
-
-    template <typename Span>
-    inline auto makeBuffer(Span s) {
-      return boost::asio::buffer(s.data(), s.size());
-    }
-  }  // namespace
-
   TlsConnection::TlsConnection(
       std::shared_ptr<transport::TcpConnection> raw_connection,
       std::shared_ptr<boost::asio::ssl::context> ssl_context,

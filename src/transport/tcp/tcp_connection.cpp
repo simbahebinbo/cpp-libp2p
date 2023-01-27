@@ -5,6 +5,8 @@
 
 #include <libp2p/transport/tcp/tcp_connection.hpp>
 
+#include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
 #include <libp2p/transport/tcp/tcp_util.hpp>
 
 #define TRACE_ENABLED 0
