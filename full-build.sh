@@ -3,7 +3,7 @@
 rm -rf build
 mkdir build
 cd build
-cmake ..
+cmake -DEXAMPLES=OFF ..
 cmake --build .
 cd ..
 
