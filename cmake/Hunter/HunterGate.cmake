@@ -57,7 +57,7 @@ endif()
 include(CMakeParseArguments) # cmake_parse_arguments
 
 option(HUNTER_STATUS_PRINT "Print working status" ON)
-option(HUNTER_STATUS_DEBUG "Print a lot info" OFF)
+option(HUNTER_STATUS_DEBUG "Print a lot info" ON)
 option(HUNTER_TLS_VERIFY "Enable/disable TLS certificate checking on downloads" ON)
 
 set(HUNTER_ERROR_PAGE "https://docs.hunter.sh/en/latest/reference/errors")
