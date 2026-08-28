@@ -54,13 +54,11 @@ namespace libp2p::crypto::ed25519 {
 
   outcome::result<PublicKey> Ed25519ProviderImpl::derive(
       const PrivateKey &private_key) const {
-    // libp2p Ed25519 private key can be 32 bytes (seed only) or 64 bytes (seed + public key)
-    // Extract the 32-byte seed from either format
-    if (private_key.data.size() < 32) {
+    // libp2p Ed25519 private key is 32 bytes (seed) in this implementation
+    if (private_key.size() != 32) {
       return KeyGeneratorError::KEY_DERIVATION_FAILED;
     }
-    const uint8_t* seed = private_key.data.data();
-    // If 64 bytes, the seed is the first 32 bytes
+    const uint8_t* seed = private_key.data();
     BytesIn seed_bytes{seed, 32};
     OUTCOME_TRY(
         evp_pkey,
@@ -79,11 +77,10 @@ namespace libp2p::crypto::ed25519 {
 
   outcome::result<Signature> Ed25519ProviderImpl::sign(
       BytesIn message, const PrivateKey &private_key) const {
-    // Handle both 32-byte (seed) and 64-byte (seed+pub) private key formats
-    if (private_key.data.size() < 32) {
+    if (private_key.size() != 32) {
       return CryptoProviderError::SIGNATURE_GENERATION_FAILED;
     }
-    const uint8_t* seed = private_key.data.data();
+    const uint8_t* seed = private_key.data();
     BytesIn seed_bytes{seed, 32};
     OUTCOME_TRY(
         evp_pkey,
@@ -119,7 +116,7 @@ namespace libp2p::crypto::ed25519 {
       BytesIn message,
       const Signature &signature,
       const PublicKey &public_key) const {
-    if (public_key.data.size() != 32) {
+    if (public_key.size() != 32) {
       return CryptoProviderError::SIGNATURE_VERIFICATION_FAILED;
     }
     OUTCOME_TRY(evp_pkey,
