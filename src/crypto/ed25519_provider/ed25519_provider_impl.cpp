@@ -54,10 +54,18 @@ namespace libp2p::crypto::ed25519 {
 
   outcome::result<PublicKey> Ed25519ProviderImpl::derive(
       const PrivateKey &private_key) const {
+    // libp2p Ed25519 private key can be 32 bytes (seed only) or 64 bytes (seed + public key)
+    // Extract the 32-byte seed from either format
+    if (private_key.data.size() < 32) {
+      return KeyGeneratorError::KEY_DERIVATION_FAILED;
+    }
+    const uint8_t* seed = private_key.data.data();
+    // If 64 bytes, the seed is the first 32 bytes
+    BytesIn seed_bytes{seed, 32};
     OUTCOME_TRY(
         evp_pkey,
         NewEvpPkeyFromBytes(
-            EVP_PKEY_ED25519, private_key, EVP_PKEY_new_raw_private_key));
+            EVP_PKEY_ED25519, seed_bytes, EVP_PKEY_new_raw_private_key));
     PublicKey public_key{0};
     size_t pub_len{public_key.size()};
     if (1
@@ -71,10 +79,16 @@ namespace libp2p::crypto::ed25519 {
 
   outcome::result<Signature> Ed25519ProviderImpl::sign(
       BytesIn message, const PrivateKey &private_key) const {
+    // Handle both 32-byte (seed) and 64-byte (seed+pub) private key formats
+    if (private_key.data.size() < 32) {
+      return CryptoProviderError::SIGNATURE_GENERATION_FAILED;
+    }
+    const uint8_t* seed = private_key.data.data();
+    BytesIn seed_bytes{seed, 32};
     OUTCOME_TRY(
         evp_pkey,
         NewEvpPkeyFromBytes(
-            EVP_PKEY_ED25519, private_key, EVP_PKEY_new_raw_private_key));
+            EVP_PKEY_ED25519, seed_bytes, EVP_PKEY_new_raw_private_key));
     constexpr auto FAILED{CryptoProviderError::SIGNATURE_GENERATION_FAILED};
 
     std::shared_ptr<EVP_MD_CTX> mctx{EVP_MD_CTX_new(), EVP_MD_CTX_free};
@@ -105,6 +119,9 @@ namespace libp2p::crypto::ed25519 {
       BytesIn message,
       const Signature &signature,
       const PublicKey &public_key) const {
+    if (public_key.data.size() != 32) {
+      return CryptoProviderError::SIGNATURE_VERIFICATION_FAILED;
+    }
     OUTCOME_TRY(evp_pkey,
                 NewEvpPkeyFromBytes(
                     EVP_PKEY_ED25519, public_key, EVP_PKEY_new_raw_public_key));
